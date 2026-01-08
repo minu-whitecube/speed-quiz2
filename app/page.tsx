@@ -38,7 +38,7 @@ const quizData = [
 ]
 
 // 각 문제별 제한 시간 (초)
-const questionTimes = [5, 5, 5, 5, 5]
+const questionTimes = [5, 5, 5, 4, 3.5]
 
 type Screen = 'main' | 'countdown' | 'quiz' | 'fail' | 'success'
 
@@ -49,6 +49,7 @@ export default function Home() {
   const [countdownNumber, setCountdownNumber] = useState(3)
   const [shuffledAnswers, setShuffledAnswers] = useState<string[]>([])
   const [correctIndex, setCorrectIndex] = useState(0)
+  const [selectedAnswerIndex, setSelectedAnswerIndex] = useState<number | null>(null)
   const [hasAttempted, setHasAttempted] = useState(false)
   const [hasTicket, setHasTicket] = useState(true)
   
@@ -220,6 +221,7 @@ export default function Home() {
     setShuffledAnswers(shuffled.answers)
     setCorrectIndex(shuffled.correct)
     setTimeLeft(questionTime)
+    setSelectedAnswerIndex(null) // 문제가 바뀔 때 선택된 답안 리셋
 
     // 진행바 리셋
     if (progressBarRef.current) {
@@ -259,31 +261,6 @@ export default function Home() {
     }
   }, [screen, currentQuestionIndex, shuffleAnswers])
 
-  // 답안 선택
-  const selectAnswer = useCallback((index: number) => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current)
-      timerRef.current = null
-    }
-
-    if (index !== correctIndex) {
-      showFailScreen()
-      return
-    }
-
-    // 정답인 경우
-    const nextIndex = currentQuestionIndex + 1
-    if (nextIndex >= quizData.length) {
-      setTimeout(() => {
-        showSuccessScreen()
-      }, 300)
-    } else {
-      setTimeout(() => {
-        setCurrentQuestionIndex(nextIndex)
-      }, 500)
-    }
-  }, [correctIndex, currentQuestionIndex])
-
   // 실패 화면 표시
   const showFailScreen = useCallback(() => {
     setScreen('fail')
@@ -298,6 +275,36 @@ export default function Home() {
     localStorage.setItem('hasAttempted', 'true')
     setHasAttempted(true)
   }, [])
+
+  // 답안 선택
+  const selectAnswer = useCallback((index: number) => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+
+    // 선택된 답안 표시
+    setSelectedAnswerIndex(index)
+
+    if (index !== correctIndex) {
+      setTimeout(() => {
+        showFailScreen()
+      }, 300)
+      return
+    }
+
+    // 정답인 경우
+    const nextIndex = currentQuestionIndex + 1
+    if (nextIndex >= quizData.length) {
+      setTimeout(() => {
+        showSuccessScreen()
+      }, 500)
+    } else {
+      setTimeout(() => {
+        setCurrentQuestionIndex(nextIndex)
+      }, 500)
+    }
+  }, [correctIndex, currentQuestionIndex, showFailScreen, showSuccessScreen])
 
   // 공유 URL 생성
   const getShareUrl = useCallback(() => {
@@ -424,10 +431,10 @@ export default function Home() {
       {/* 퀴즈 화면 */}
       {screen === 'quiz' && currentQuestion && (
         <div>
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mt-2">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mt-2">
             {/* 진행 상태바 */}
-            <div className="mb-6">
-              <div className="flex justify-between items-center mb-3">
+            <div className="mb-4">
+              <div className="flex justify-between items-center mb-2">
                 <span className="text-sm font-semibold text-gray-700">
                   문제 <span className="text-[#F93B4E]">{currentQuestionIndex + 1}</span>/5
                 </span>
@@ -442,12 +449,12 @@ export default function Home() {
             </div>
 
             {/* 문제 내용 */}
-            <div className="mb-4">
+            <div className="mb-3">
               <p className="text-lg font-bold text-gray-900 text-center">{currentQuestion.question}</p>
             </div>
 
             {/* 문제 이미지 */}
-            <div className="mb-6 rounded-xl overflow-hidden border border-gray-100 shadow-sm bg-gray-50">
+            <div className="mb-4 rounded-xl overflow-hidden border border-gray-100 shadow-sm bg-gray-50">
               <Image
                 src={currentQuestion.image}
                 alt="문제 이미지"
@@ -459,16 +466,27 @@ export default function Home() {
             </div>
 
             {/* 선택지 버튼 */}
-            <div className="space-y-2.5">
-              {shuffledAnswers.map((answer, index) => (
-                <button
-                  key={index}
-                  onClick={() => selectAnswer(index)}
-                  className="answer-btn w-full bg-gray-50 hover:bg-[#F93B4E] hover:text-white border border-gray-200 hover:border-[#F93B4E] text-gray-700 font-semibold py-3 px-4 rounded-lg transition-all duration-200 transform hover:scale-[1.01] active:scale-[0.99] text-base font-medium text-left flex items-center h-14"
-                >
-                  <span>{answer}</span>
-                </button>
-              ))}
+            <div className="space-y-2">
+              {shuffledAnswers.map((answer, index) => {
+                const isSelected = selectedAnswerIndex === index
+                const isCorrect = index === correctIndex && isSelected
+                return (
+                  <button
+                    key={index}
+                    onClick={() => selectAnswer(index)}
+                    disabled={selectedAnswerIndex !== null}
+                    className={`answer-btn w-full border rounded-lg transition-all duration-200 transform hover:scale-[1.01] active:scale-[0.99] text-base font-medium text-left flex items-center h-11 px-4 ${
+                      isCorrect
+                        ? 'bg-[#F93B4E] text-white border-[#F93B4E]'
+                        : isSelected
+                        ? 'bg-red-50 text-red-700 border-red-200'
+                        : 'bg-gray-50 hover:bg-[#F93B4E] hover:text-white border-gray-200 hover:border-[#F93B4E] text-gray-700'
+                    } ${selectedAnswerIndex !== null ? 'cursor-not-allowed' : ''}`}
+                  >
+                    <span>{answer}</span>
+                  </button>
+                )
+              })}
             </div>
           </div>
         </div>
