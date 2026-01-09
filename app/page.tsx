@@ -446,26 +446,151 @@ export default function Home() {
     }
   }, [getShareUrl])
 
-  // 링크 복사
+  // 링크 복사 (iOS Safari 최적화)
   const copyLink = useCallback((url: string) => {
+    // iOS Safari를 포함한 최신 브라우저에서 Clipboard API 사용
     if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(url).then(() => {
         alert('링크가 복사되었습니다')
+      }).catch(() => {
+        // Clipboard API 실패 시 iOS Safari에 최적화된 fallback 사용
+        fallbackCopyTextToClipboard(url)
       })
     } else {
+      // Clipboard API를 지원하지 않는 경우
+      fallbackCopyTextToClipboard(url)
+    }
+
+    // iOS Safari를 포함한 모든 브라우저에서 작동하는 fallback 함수
+    function fallbackCopyTextToClipboard(text: string) {
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+      
+      // iOS에서는 textarea를 사용하되 더 안정적인 방법 적용
       const textArea = document.createElement('textarea')
-      textArea.value = url
+      textArea.value = text
       textArea.style.position = 'fixed'
+      textArea.style.top = '0'
+      textArea.style.left = '0'
+      textArea.style.width = '2em'
+      textArea.style.height = '2em'
+      textArea.style.padding = '0'
+      textArea.style.border = 'none'
+      textArea.style.outline = 'none'
+      textArea.style.boxShadow = 'none'
+      textArea.style.background = 'transparent'
       textArea.style.opacity = '0'
+      textArea.setAttribute('readonly', '')
+      
       document.body.appendChild(textArea)
-      textArea.select()
-      try {
-        document.execCommand('copy')
-        alert('링크가 복사되었습니다')
-      } catch (err) {
-        alert('링크 복사에 실패했습니다. 수동으로 복사해주세요: ' + url)
+      
+      if (isIOS) {
+        // iOS Safari에서는 특별한 처리 필요
+        const range = document.createRange()
+        range.selectNodeContents(textArea)
+        const selection = window.getSelection()
+        if (selection) {
+          selection.removeAllRanges()
+          selection.addRange(range)
+        }
+        textArea.setSelectionRange(0, text.length)
+        textArea.contentEditable = 'true'
+        textArea.readOnly = false
+      } else {
+        textArea.focus()
+        textArea.select()
       }
-      document.body.removeChild(textArea)
+      
+      try {
+        // iOS에서는 execCommand가 제한적으로 작동하므로 사용자 선택 영역에 의존
+        const successful = document.execCommand('copy')
+        document.body.removeChild(textArea)
+        
+        if (successful) {
+          alert('링크가 복사되었습니다')
+        } else if (isIOS) {
+          // iOS에서 자동 복사가 실패한 경우 사용자에게 직접 선택할 수 있도록 안내
+          showManualCopyOption(text)
+        } else {
+          alert('링크 복사에 실패했습니다. 수동으로 복사해주세요: ' + text)
+        }
+      } catch (err) {
+        document.body.removeChild(textArea)
+        // iOS에서는 사용자에게 직접 복사할 수 있도록 안내
+        if (isIOS) {
+          showManualCopyOption(text)
+        } else {
+          alert('링크 복사에 실패했습니다. 수동으로 복사해주세요: ' + text)
+        }
+      }
+    }
+
+    // iOS에서 자동 복사가 실패한 경우 수동 복사 옵션 제공
+    function showManualCopyOption(text: string) {
+      const copyDiv = document.createElement('div')
+      copyDiv.style.position = 'fixed'
+      copyDiv.style.top = '50%'
+      copyDiv.style.left = '50%'
+      copyDiv.style.transform = 'translate(-50%, -50%)'
+      copyDiv.style.backgroundColor = 'white'
+      copyDiv.style.padding = '20px'
+      copyDiv.style.borderRadius = '8px'
+      copyDiv.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)'
+      copyDiv.style.zIndex = '10000'
+      copyDiv.style.maxWidth = '90%'
+      copyDiv.style.fontFamily = 'system-ui, -apple-system, sans-serif'
+      
+      const message = document.createElement('p')
+      message.textContent = '링크를 선택하여 복사하세요'
+      message.style.margin = '0 0 10px 0'
+      message.style.fontSize = '14px'
+      message.style.color = '#333'
+      
+      const textInput = document.createElement('input')
+      textInput.type = 'text'
+      textInput.value = text
+      textInput.readOnly = true
+      textInput.style.width = '100%'
+      textInput.style.padding = '10px'
+      textInput.style.border = '1px solid #ddd'
+      textInput.style.borderRadius = '4px'
+      textInput.style.fontSize = '14px'
+      textInput.style.boxSizing = 'border-box'
+      
+      // iOS에서 탭하면 자동으로 전체 선택되도록
+      textInput.addEventListener('focus', () => {
+        textInput.select()
+      })
+      
+      textInput.addEventListener('click', () => {
+        textInput.select()
+      })
+      
+      const closeBtn = document.createElement('button')
+      closeBtn.textContent = '닫기'
+      closeBtn.style.marginTop = '10px'
+      closeBtn.style.width = '100%'
+      closeBtn.style.padding = '10px'
+      closeBtn.style.backgroundColor = '#F93B4E'
+      closeBtn.style.color = 'white'
+      closeBtn.style.border = 'none'
+      closeBtn.style.borderRadius = '4px'
+      closeBtn.style.cursor = 'pointer'
+      closeBtn.style.fontSize = '14px'
+      
+      closeBtn.onclick = () => {
+        document.body.removeChild(copyDiv)
+      }
+      
+      copyDiv.appendChild(message)
+      copyDiv.appendChild(textInput)
+      copyDiv.appendChild(closeBtn)
+      document.body.appendChild(copyDiv)
+      
+      // 자동으로 포커스하여 선택 (iOS에서 작동)
+      setTimeout(() => {
+        textInput.focus()
+        textInput.select()
+      }, 100)
     }
   }, [])
 
