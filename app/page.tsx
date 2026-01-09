@@ -60,6 +60,7 @@ export default function Home() {
   
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const progressBarRef = useRef<HTMLDivElement>(null)
+  const preloadedImagesRef = useRef<Set<string>>(new Set())
 
   // 유저 ID 생성 또는 가져오기 (localStorage에 저장하여 유지)
   const getOrCreateUserId = useCallback(() => {
@@ -146,6 +147,15 @@ export default function Home() {
       console.error('도전권 조회 오류:', error)
     }
   }, [userId])
+
+  // 이미지 프리로드 함수
+  const preloadImage = useCallback((src: string) => {
+    if (preloadedImagesRef.current.has(src)) return
+    
+    const img = new window.Image()
+    img.src = src
+    preloadedImagesRef.current.add(src)
+  }, [])
 
   // 배열 셔플 함수 (Fisher-Yates 알고리즘)
   const shuffleArray = useCallback(<T,>(array: T[]): T[] => {
@@ -295,6 +305,15 @@ export default function Home() {
   useEffect(() => {
     if (screen !== 'countdown') return
 
+    // 카운트다운 중에 첫 번째 문제 이미지 프리로드
+    if (quizData.length > 0) {
+      preloadImage(quizData[0].image)
+      // 두 번째 문제 이미지도 미리 로드
+      if (quizData.length > 1) {
+        preloadImage(quizData[1].image)
+      }
+    }
+
     let count = 3
     setCountdownNumber(count)
 
@@ -309,7 +328,36 @@ export default function Home() {
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [screen])
+  }, [screen, preloadImage])
+
+  // 실패 화면 표시
+  const showFailScreen = useCallback(async () => {
+    setScreen('fail')
+    localStorage.setItem('hasAttempted', 'true')
+    setHasAttempted(true)
+    await fetchTickets()
+  }, [fetchTickets])
+
+  // 성공 화면 표시
+  const showSuccessScreen = useCallback(async () => {
+    setScreen('success')
+    localStorage.setItem('hasAttempted', 'true')
+    setHasAttempted(true)
+    setIsCompleted(true)
+    
+    // 서버에 성공 여부 업데이트 (백그라운드에서 처리하여 화면 전환 속도 향상)
+    if (userId) {
+      fetch('/api/user/complete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId }),
+      }).catch(error => {
+        console.error('성공 여부 업데이트 오류:', error)
+      })
+    }
+  }, [userId])
 
   // 문제 시작
   useEffect(() => {
@@ -324,16 +372,23 @@ export default function Home() {
     setTimeLeft(questionTime)
     setSelectedAnswerIndex(null) // 문제가 바뀔 때 선택된 답안 리셋
 
+    // 다음 문제의 이미지 프리로드 (다음 문제가 있는 경우)
+    if (currentQuestionIndex + 1 < quizData.length) {
+      const nextQuestion = quizData[currentQuestionIndex + 1]
+      preloadImage(nextQuestion.image)
+    }
+
     // 진행바 리셋
     if (progressBarRef.current) {
       progressBarRef.current.style.animation = 'none'
       progressBarRef.current.style.width = '100%'
       void progressBarRef.current.offsetWidth
-      setTimeout(() => {
+      // requestAnimationFrame을 사용하여 더 부드럽게 처리
+      requestAnimationFrame(() => {
         if (progressBarRef.current) {
           progressBarRef.current.style.animation = `progress ${questionTime}s linear forwards`
         }
-      }, 10)
+      })
     }
 
     // 타이머 시작
@@ -360,38 +415,7 @@ export default function Home() {
         timerRef.current = null
       }
     }
-  }, [screen, currentQuestionIndex, shuffleAnswers])
-
-  // 실패 화면 표시
-  const showFailScreen = useCallback(async () => {
-    setScreen('fail')
-    localStorage.setItem('hasAttempted', 'true')
-    setHasAttempted(true)
-    await fetchTickets()
-  }, [fetchTickets])
-
-  // 성공 화면 표시
-  const showSuccessScreen = useCallback(async () => {
-    setScreen('success')
-    localStorage.setItem('hasAttempted', 'true')
-    setHasAttempted(true)
-    setIsCompleted(true)
-    
-    // 서버에 성공 여부 업데이트
-    if (userId) {
-      try {
-        await fetch('/api/user/complete', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ userId }),
-        })
-      } catch (error) {
-        console.error('성공 여부 업데이트 오류:', error)
-      }
-    }
-  }, [userId])
+  }, [screen, currentQuestionIndex, shuffleAnswers, preloadImage, showFailScreen])
 
   // 답안 선택
   const selectAnswer = useCallback((index: number) => {
@@ -404,22 +428,24 @@ export default function Home() {
     setSelectedAnswerIndex(index)
 
     if (index !== correctIndex) {
+      // 오답인 경우 빠른 전환 (300ms -> 250ms)
       setTimeout(() => {
         showFailScreen()
-      }, 300)
+      }, 250)
       return
     }
 
-    // 정답인 경우
+    // 정답인 경우 - 딜레이 단축 (500ms -> 300ms)
     const nextIndex = currentQuestionIndex + 1
     if (nextIndex >= quizData.length) {
       setTimeout(() => {
         showSuccessScreen()
-      }, 500)
+      }, 300)
     } else {
+      // 다음 문제로 전환 (500ms -> 300ms)
       setTimeout(() => {
         setCurrentQuestionIndex(nextIndex)
-      }, 500)
+      }, 300)
     }
   }, [correctIndex, currentQuestionIndex, showFailScreen, showSuccessScreen])
 
@@ -805,6 +831,8 @@ export default function Home() {
                 width={400}
                 height={400}
                 className="w-full aspect-square object-contain"
+                priority={currentQuestionIndex === 0}
+                loading={currentQuestionIndex === 0 ? 'eager' : 'lazy'}
                 unoptimized
               />
             </div>
