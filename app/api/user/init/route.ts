@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     // 유저가 이미 존재하는지 확인
     const { data: existingUser, error: checkError } = await supabase
       .from('users')
-      .select('user_id, tickets')
+      .select('user_id, tickets, is_completed')
       .eq('user_id', userId)
       .single()
 
@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         userId: existingUser.user_id,
         tickets: existingUser.tickets,
+        isCompleted: existingUser.is_completed || false,
         isNew: false
       })
     }
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
         console.log('유저가 이미 존재함, 기존 유저 정보 조회:', userId)
         const { data: existingUser, error: fetchError } = await supabase
           .from('users')
-          .select('user_id, tickets')
+          .select('user_id, tickets, is_completed')
           .eq('user_id', userId)
           .single()
 
@@ -86,6 +87,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           userId: existingUser.user_id,
           tickets: existingUser.tickets,
+          isCompleted: existingUser.is_completed || false,
           isNew: false
         })
       }
@@ -101,6 +103,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       userId: newUser.user_id,
       tickets: newUser.tickets,
+      isCompleted: newUser.is_completed || false,
       isNew: true
     })
   } catch (error) {

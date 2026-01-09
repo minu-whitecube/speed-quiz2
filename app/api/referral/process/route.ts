@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 초대자에게 도전권 부여
+    // 초대자에게 도전권 부여 (최대 1까지만 누적)
     const { data: referrerUser, error: fetchError } = await supabase
       .from('users')
       .select('tickets')
@@ -112,9 +112,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 도전권이 이미 1 이상이면 부여하지 않음
+    if (referrerUser.tickets >= 1) {
+      return NextResponse.json({
+        success: true,
+        message: '도전권이 이미 최대치입니다.',
+        ticketsAwarded: false,
+        referrerTickets: referrerUser.tickets
+      })
+    }
+
+    // 도전권이 0일 때만 1로 증가
     const { data: updatedUser, error: updateError } = await supabase
       .from('users')
-      .update({ tickets: referrerUser.tickets + 1 })
+      .update({ tickets: 1 })
       .eq('user_id', referrerId)
       .select()
       .single()

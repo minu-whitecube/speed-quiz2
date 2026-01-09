@@ -7,7 +7,7 @@ import Image from 'next/image'
 const quizData = [
   {
     question: '이 제품의 카테고리는 무엇일까요?',
-    image: '/q1_tocobo.png',
+    image: '/q1_drg.png',
     answers: ['스킨케어', '메이크업', '선케어', '마스크팩', '헤어케어'],
     correct: 2
   },
@@ -20,7 +20,7 @@ const quizData = [
   {
     question: '이 제품의 정확한 이름은 무엇일까요?',
     image: '/q3_wellage.png',
-    answers: ['에스트라 아토베리어365 크림', '아누아 피디알엔 히알루론산100 수분크림', '토리든 다이브인 저분자 히알루론산 세럼', '피지오겔 DMT 페이셜 크림', '웰라쥬 리얼 히알루로닉 블루 100 앰플'],
+    answers: ['헤라 블랙쿠션', '청미정 다시마 샴푸', '메디힐 에센셜 마스크팩', '롬앤 더 쥬시 래스팅팅', '웰라쥬 리얼 히알루로닉 블루 100 앰플'],
     correct: 4
   },
   {
@@ -56,6 +56,7 @@ export default function Home() {
   const [tickets, setTickets] = useState<number>(1)
   const [isLoading, setIsLoading] = useState(true)
   const [showNoTicketModal, setShowNoTicketModal] = useState(false)
+  const [isCompleted, setIsCompleted] = useState(false)
   
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const progressBarRef = useRef<HTMLDivElement>(null)
@@ -89,6 +90,7 @@ export default function Home() {
       const data = await response.json()
       setTickets(data.tickets)
       setHasTicket(data.tickets > 0)
+      setIsCompleted(data.isCompleted || false)
       return data
     } catch (error) {
       console.error('유저 초기화 오류:', error)
@@ -185,7 +187,14 @@ export default function Home() {
       setUserId(currentUserId)
 
       // 유저 초기화 (Supabase)
-      await initializeUser(currentUserId)
+      const userData = await initializeUser(currentUserId)
+
+      // 이미 성공한 유저면 성공 화면으로 바로 이동
+      if (userData.isCompleted) {
+        setScreen('success')
+        setIsLoading(false)
+        return
+      }
 
       // 추천인 처리 (URL 파라미터에서 ref 가져오기)
       const urlParams = new URLSearchParams(window.location.search)
@@ -254,6 +263,12 @@ export default function Home() {
 
   // 퀴즈 시작
   const startQuiz = useCallback(async () => {
+    // 성공한 유저는 퀴즈를 다시 시작할 수 없음
+    if (isCompleted) {
+      setScreen('success')
+      return
+    }
+    
     if (!hasChallengeTicket()) {
       alert('도전권이 없습니다. 공유하고 다시 도전하세요.')
       return
@@ -273,7 +288,7 @@ export default function Home() {
     }
     setScreen('countdown')
     setCountdownNumber(3)
-  }, [hasChallengeTicket, useChallengeTicket])
+  }, [hasChallengeTicket, useChallengeTicket, isCompleted])
 
   // 카운트다운
   useEffect(() => {
@@ -355,11 +370,27 @@ export default function Home() {
   }, [fetchTickets])
 
   // 성공 화면 표시
-  const showSuccessScreen = useCallback(() => {
+  const showSuccessScreen = useCallback(async () => {
     setScreen('success')
     localStorage.setItem('hasAttempted', 'true')
     setHasAttempted(true)
-  }, [])
+    setIsCompleted(true)
+    
+    // 서버에 성공 여부 업데이트
+    if (userId) {
+      try {
+        await fetch('/api/user/complete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ userId }),
+        })
+      } catch (error) {
+        console.error('성공 여부 업데이트 오류:', error)
+      }
+    }
+  }, [userId])
 
   // 답안 선택
   const selectAnswer = useCallback((index: number) => {
@@ -404,7 +435,7 @@ export default function Home() {
     if (typeof navigator !== 'undefined' && navigator.share) {
       navigator.share({
         title: '성공하면 1만 원! 스피드 퀴즈 도전',
-        text: '제한 시간 초과나 오답 시 즉시 실패!',
+        text: '제한 시간이 초과되거나 오답 시 즉시 실패!',
         url: shareUrl
       }).catch(() => {
         copyLink(shareUrl)
@@ -439,6 +470,12 @@ export default function Home() {
 
   // 메인으로 돌아가기
   const goToMain = useCallback(async () => {
+    // 성공한 유저는 메인으로 돌아갈 수 없음
+    if (isCompleted) {
+      setScreen('success')
+      return
+    }
+    
     await fetchTickets()
     const attempted = localStorage.getItem('hasAttempted') === 'true'
     
@@ -448,7 +485,7 @@ export default function Home() {
       setScreen('main')
       resetQuiz()
     }
-  }, [fetchTickets, tickets])
+  }, [fetchTickets, tickets, isCompleted])
 
   // 퀴즈 리셋
   const resetQuiz = useCallback(() => {
@@ -497,8 +534,10 @@ export default function Home() {
 
   // 보상 받기
   const claimReward = useCallback(() => {
-    window.location.href = 'https://www.google.com'
-  }, [])
+    if (!userId) return
+    const rewardUrl = `https://tally.so/r/NplZ6l?utm_source=viral&utm_content=${encodeURIComponent(userId)}`
+    window.location.href = rewardUrl
+  }, [userId])
 
   const currentQuestion = quizData[currentQuestionIndex]
   const displayTime = timeLeft % 1 === 0 ? timeLeft + '초' : timeLeft.toFixed(1) + '초'
@@ -565,8 +604,11 @@ export default function Home() {
             <h1 className="text-3xl font-bold text-gray-900 mb-3 leading-tight">
               성공하면 1만 원!<br /><span className="text-[#F93B4E]">스피드 퀴즈</span> 도전
             </h1>
-            <p className="text-gray-600 mb-10 text-base leading-relaxed">
-              제한 시간 초과나 오답 시<br />즉시 실패!
+            <p className="text-gray-600 mb-4 text-base leading-relaxed">
+              문제를 읽고 사진에 알맞은<br />정답을 고르세요
+            </p>
+            <p className="text-gray-500 mb-10 text-sm">
+              정해진 인원이 모두 성공하면 이벤트가 종료돼요
             </p>
             <button
               onClick={startQuiz}
@@ -667,7 +709,8 @@ export default function Home() {
             <h2 className="text-xl font-bold text-gray-900 mb-3 leading-tight">
               앗 아쉬워요!<br />다시 도전해보시겠어요?
             </h2>
-            <p className="text-gray-500 text-sm mb-10">링크를 공유하면 한번 더 기회가 생겨요!</p>
+            <p className="text-gray-500 text-sm ">링크를 공유하면 한번 더 기회가 생겨요!</p>
+            <p className="text-gray-500 text-sm mb-10">(도전권은 최대 1개까지 보유 가능해요)</p>
             
             <div className="space-y-3 mt-8">
               <button
@@ -710,12 +753,20 @@ export default function Home() {
               축하합니다!<br />5문제를 모두 맞추셨습니다.
             </h2>
             <p className="text-gray-500 text-sm mb-10">보상을 받아가세요!</p>
-            <button
-              onClick={claimReward}
-              className="w-full bg-[#F93B4E] text-white font-semibold py-4 px-8 rounded-xl text-lg shadow-md hover:shadow-lg hover:bg-[#d83242] transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
-            >
-              1만원 받기
-            </button>
+            <div className="space-y-3">
+              <button
+                onClick={claimReward}
+                className="w-full bg-[#F93B4E] text-white font-semibold py-4 px-8 rounded-xl text-lg shadow-md hover:shadow-lg hover:bg-[#d83242] transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
+              >
+                1만원 받기
+              </button>
+              <button
+                onClick={shareAndRetry}
+                className="w-full bg-blue-500 text-white font-semibold py-4 px-8 rounded-xl text-base shadow-md hover:shadow-lg hover:bg-blue-600 transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
+              >
+                친구에게 공유하기
+              </button>
+            </div>
           </div>
         </div>
       )}
