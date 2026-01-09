@@ -429,23 +429,6 @@ export default function Home() {
     return baseUrl + '?ref=' + encodeURIComponent(userId)
   }, [userId])
 
-  // 공유하고 다시 도전
-  const shareAndRetry = useCallback(() => {
-    const shareUrl = getShareUrl()
-    
-    if (typeof navigator !== 'undefined' && navigator.share) {
-      navigator.share({
-        title: '성공하면 1만 원! 스피드 퀴즈 도전',
-        text: '답을 아시겠나요? 퀴즈에 도전하세요.\n퀴즈를 모두 맞추면 1만 원을 드려요.',
-        url: shareUrl
-      }).catch(() => {
-        copyLink(shareUrl)
-      })
-    } else {
-      copyLink(shareUrl)
-    }
-  }, [getShareUrl])
-
   // 링크 복사 (iOS Safari 최적화)
   const copyLink = useCallback((url: string) => {
     // iOS Safari를 포함한 최신 브라우저에서 Clipboard API 사용
@@ -593,6 +576,38 @@ export default function Home() {
       }, 100)
     }
   }, [])
+
+  // 공유하고 다시 도전
+  const shareAndRetry = useCallback(() => {
+    const shareUrl = getShareUrl()
+    
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      // iOS 감지
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+      
+      // iOS에서는 text에 URL을 포함시켜야 공유 시트에서 링크 복사가 제대로 작동함
+      const shareData: { title?: string; text?: string; url?: string } = {
+        title: '성공하면 1만 원! 스피드 퀴즈 도전',
+      }
+      
+      if (isIOS) {
+        // iOS에서는 text에 URL을 포함 (공유 시트에서 링크 복사 시 URL이 포함되도록)
+        shareData.text = '답을 아시겠나요? 퀴즈에 도전하세요.\n퀴즈를 모두 맞추면 1만 원을 드려요.\n\n' + shareUrl
+      } else {
+        // 다른 플랫폼에서는 text와 url을 분리
+        shareData.text = '답을 아시겠나요? 퀴즈에 도전하세요.\n퀴즈를 모두 맞추면 1만 원을 드려요.'
+        shareData.url = shareUrl
+      }
+      
+      navigator.share(shareData).catch(() => {
+        // 공유 취소 시 링크 복사
+        copyLink(shareUrl)
+      })
+    } else {
+      // navigator.share를 지원하지 않는 경우 링크 복사
+      copyLink(shareUrl)
+    }
+  }, [getShareUrl, copyLink])
 
   // 메인으로 돌아가기
   const goToMain = useCallback(async () => {
