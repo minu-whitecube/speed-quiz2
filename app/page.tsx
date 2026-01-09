@@ -679,7 +679,7 @@ export default function Home() {
                     key={index}
                     onClick={() => selectAnswer(index)}
                     disabled={selectedAnswerIndex !== null}
-                    className={`answer-btn w-full border rounded-lg transition-all duration-200 transform hover:scale-[1.01] active:scale-[0.99] text-base font-medium text-left flex items-center h-11 px-4 ${
+                    className={`answer-btn w-full border rounded-lg transition-all duration-200 transform hover:scale-[1.01] active:scale-[0.99] text-sm font-medium text-left flex items-center h-11 px-4 ${
                       isCorrect
                         ? 'bg-[#F93B4E] text-white border-[#F93B4E]'
                         : isSelected
