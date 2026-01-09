@@ -52,45 +52,98 @@ export default function Home() {
   const [selectedAnswerIndex, setSelectedAnswerIndex] = useState<number | null>(null)
   const [hasAttempted, setHasAttempted] = useState(false)
   const [hasTicket, setHasTicket] = useState(true)
+  const [userId, setUserId] = useState<string>('')
+  const [tickets, setTickets] = useState<number>(1)
+  const [isLoading, setIsLoading] = useState(true)
+  const [showNoTicketModal, setShowNoTicketModal] = useState(false)
   
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const progressBarRef = useRef<HTMLDivElement>(null)
 
-  // 유저 ID 생성 또는 가져오기
-  const getUserId = useCallback(() => {
+  // 유저 ID 생성 또는 가져오기 (localStorage에 저장하여 유지)
+  const getOrCreateUserId = useCallback(() => {
     if (typeof window === 'undefined') return ''
-    let userId = localStorage.getItem('quizUserId')
-    if (!userId) {
-      userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
-      localStorage.setItem('quizUserId', userId)
+    let storedUserId = localStorage.getItem('quizUserId')
+    if (!storedUserId) {
+      storedUserId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
+      localStorage.setItem('quizUserId', storedUserId)
     }
-    return userId
+    return storedUserId
+  }, [])
+
+  // 유저 초기화 (Supabase)
+  const initializeUser = useCallback(async (userId: string) => {
+    try {
+      const response = await fetch('/api/user/init', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId }),
+      })
+
+      if (!response.ok) {
+        throw new Error('유저 초기화 실패')
+      }
+
+      const data = await response.json()
+      setTickets(data.tickets)
+      setHasTicket(data.tickets > 0)
+      return data
+    } catch (error) {
+      console.error('유저 초기화 오류:', error)
+      // 오류 발생 시 기본값 사용
+      setTickets(1)
+      setHasTicket(true)
+    }
   }, [])
 
   // 도전권 확인
   const hasChallengeTicket = useCallback(() => {
-    if (typeof window === 'undefined') return false
-    const tickets = parseInt(localStorage.getItem('quizTickets') || '1')
     return tickets > 0
-  }, [])
+  }, [tickets])
 
   // 도전권 사용
-  const useChallengeTicket = useCallback(() => {
-    if (typeof window === 'undefined') return
-    const tickets = parseInt(localStorage.getItem('quizTickets') || '1')
-    if (tickets > 0) {
-      localStorage.setItem('quizTickets', (tickets - 1).toString())
-      setHasTicket(tickets - 1 > 0)
-    }
-  }, [])
+  const useChallengeTicket = useCallback(async () => {
+    if (!userId) return
+    
+    try {
+      const response = await fetch('/api/user/tickets', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId }),
+      })
 
-  // 도전권 추가
-  const addChallengeTicket = useCallback(() => {
-    if (typeof window === 'undefined') return
-    const tickets = parseInt(localStorage.getItem('quizTickets') || '0')
-    localStorage.setItem('quizTickets', (tickets + 1).toString())
-    setHasTicket(true)
-  }, [])
+      if (!response.ok) {
+        throw new Error('도전권 사용 실패')
+      }
+
+      const data = await response.json()
+      setTickets(data.tickets)
+      setHasTicket(data.tickets > 0)
+    } catch (error) {
+      console.error('도전권 사용 오류:', error)
+    }
+  }, [userId])
+
+  // 도전권 조회
+  const fetchTickets = useCallback(async () => {
+    if (!userId) return
+    
+    try {
+      const response = await fetch(`/api/user/tickets?userId=${userId}`)
+      if (!response.ok) {
+        throw new Error('도전권 조회 실패')
+      }
+      const data = await response.json()
+      setTickets(data.tickets)
+      setHasTicket(data.tickets > 0)
+    } catch (error) {
+      console.error('도전권 조회 오류:', error)
+    }
+  }, [userId])
 
   // 배열 셔플 함수 (Fisher-Yates 알고리즘)
   const shuffleArray = useCallback(<T,>(array: T[]): T[] => {
@@ -124,68 +177,100 @@ export default function Home() {
   useEffect(() => {
     if (typeof window === 'undefined') return
 
-    // 유저 초기화
-    const userId = getUserId()
-    if (!localStorage.getItem('quizTickets')) {
-      localStorage.setItem('quizTickets', '1')
-      setHasTicket(true)
-    } else {
-      setHasTicket(hasChallengeTicket())
-    }
-
-    // 추천인 처리
-    const urlParams = new URLSearchParams(window.location.search)
-    const refId = urlParams.get('ref')
-    
-    if (refId && refId !== userId) {
-      const pendingRewards = JSON.parse(localStorage.getItem('quizPendingRewards') || '[]')
-      const rewardKey = refId + '_rewarded'
+    const initialize = async () => {
+      setIsLoading(true)
       
-      if (!pendingRewards.includes(rewardKey)) {
-        pendingRewards.push(rewardKey)
-        localStorage.setItem('quizPendingRewards', JSON.stringify(pendingRewards))
-        
-        const referrerRewards = JSON.parse(localStorage.getItem('quizReferrerRewards') || '{}')
-        if (!referrerRewards[refId]) {
-          referrerRewards[refId] = 1
-        } else {
-          referrerRewards[refId] += 1
+      // 유저 ID 가져오기 또는 생성
+      const currentUserId = getOrCreateUserId()
+      setUserId(currentUserId)
+
+      // 유저 초기화 (Supabase)
+      await initializeUser(currentUserId)
+
+      // 추천인 처리 (URL 파라미터에서 ref 가져오기)
+      const urlParams = new URLSearchParams(window.location.search)
+      const refId = urlParams.get('ref')
+      
+      if (refId && refId !== currentUserId) {
+        // 초대 링크로 들어온 경우 처리
+        try {
+          const response = await fetch('/api/referral/process', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              referrerId: refId,
+              referredId: currentUserId,
+            }),
+          })
+
+          if (response.ok) {
+            const data = await response.json()
+            if (data.ticketsAwarded) {
+              // 초대자가 도전권을 받았으므로, 현재 유저는 초대 링크 없이 접속
+              // URL에서 ref 파라미터 제거
+              const newUrl = window.location.pathname
+              window.history.replaceState({}, document.title, newUrl)
+            }
+          }
+        } catch (error) {
+          console.error('초대 처리 오류:', error)
         }
-        localStorage.setItem('quizReferrerRewards', JSON.stringify(referrerRewards))
+      }
+
+      // 유저 상태 확인 (localStorage에 시도 기록은 유지)
+      const attempted = localStorage.getItem('hasAttempted') === 'true'
+      setHasAttempted(attempted)
+      
+      // 최신 도전권 수 확인 후 화면 설정
+      const latestTicketsResponse = await fetch(`/api/user/tickets?userId=${currentUserId}`)
+      if (latestTicketsResponse.ok) {
+        const latestTicketsData = await latestTicketsResponse.json()
+        const latestTickets = latestTicketsData.tickets || 0
+        
+        // 도전권 상태 업데이트
+        setTickets(latestTickets)
+        setHasTicket(latestTickets > 0)
+        
+        // 이미 시도했고 도전권이 없으면 실패 화면으로 이동
+        if (attempted && latestTickets <= 0) {
+          setScreen('fail')
+        }
+      } else {
+        // API 호출 실패 시에도 기본값 설정
+        setTickets(0)
+        setHasTicket(false)
+        if (attempted) {
+          setScreen('fail')
+        }
       }
       
-      const newUrl = window.location.pathname
-      window.history.replaceState({}, document.title, newUrl)
-    }
-    
-    // 자신의 ID가 referrerRewards에 있으면 도전권 부여
-    const referrerRewards = JSON.parse(localStorage.getItem('quizReferrerRewards') || '{}')
-    if (referrerRewards[userId] && referrerRewards[userId] > 0) {
-      addChallengeTicket()
-      referrerRewards[userId] -= 1
-      if (referrerRewards[userId] <= 0) {
-        delete referrerRewards[userId]
-      }
-      localStorage.setItem('quizReferrerRewards', JSON.stringify(referrerRewards))
+      setIsLoading(false)
     }
 
-    // 유저 상태 확인
-    const attempted = localStorage.getItem('hasAttempted') === 'true'
-    setHasAttempted(attempted)
-    
-    if (attempted && !hasChallengeTicket()) {
-      setScreen('fail')
-    }
-  }, [getUserId, hasChallengeTicket, addChallengeTicket])
+    initialize()
+  }, [getOrCreateUserId, initializeUser, fetchTickets])
 
   // 퀴즈 시작
-  const startQuiz = useCallback(() => {
+  const startQuiz = useCallback(async () => {
     if (!hasChallengeTicket()) {
       alert('도전권이 없습니다. 공유하고 다시 도전하세요.')
       return
     }
 
-    useChallengeTicket()
+    await useChallengeTicket()
+    // 퀴즈 시작 시 문제 인덱스와 상태 리셋
+    setCurrentQuestionIndex(0)
+    setTimeLeft(5)
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+    if (progressBarRef.current) {
+      progressBarRef.current.style.animation = 'none'
+      progressBarRef.current.style.width = '100%'
+    }
     setScreen('countdown')
     setCountdownNumber(3)
   }, [hasChallengeTicket, useChallengeTicket])
@@ -262,12 +347,12 @@ export default function Home() {
   }, [screen, currentQuestionIndex, shuffleAnswers])
 
   // 실패 화면 표시
-  const showFailScreen = useCallback(() => {
+  const showFailScreen = useCallback(async () => {
     setScreen('fail')
     localStorage.setItem('hasAttempted', 'true')
     setHasAttempted(true)
-    setHasTicket(hasChallengeTicket())
-  }, [hasChallengeTicket])
+    await fetchTickets()
+  }, [fetchTickets])
 
   // 성공 화면 표시
   const showSuccessScreen = useCallback(() => {
@@ -308,10 +393,9 @@ export default function Home() {
 
   // 공유 URL 생성
   const getShareUrl = useCallback(() => {
-    const userId = getUserId()
     const baseUrl = typeof window !== 'undefined' ? window.location.origin + window.location.pathname : ''
     return baseUrl + '?ref=' + encodeURIComponent(userId)
-  }, [getUserId])
+  }, [userId])
 
   // 공유하고 다시 도전
   const shareAndRetry = useCallback(() => {
@@ -354,17 +438,17 @@ export default function Home() {
   }, [])
 
   // 메인으로 돌아가기
-  const goToMain = useCallback(() => {
-    const ticket = hasChallengeTicket()
+  const goToMain = useCallback(async () => {
+    await fetchTickets()
     const attempted = localStorage.getItem('hasAttempted') === 'true'
     
-    if (attempted && !ticket) {
+    if (attempted && tickets <= 0) {
       setScreen('fail')
     } else {
       setScreen('main')
       resetQuiz()
     }
-  }, [hasChallengeTicket])
+  }, [fetchTickets, tickets])
 
   // 퀴즈 리셋
   const resetQuiz = useCallback(() => {
@@ -380,6 +464,37 @@ export default function Home() {
     }
   }, [])
 
+  // 공유 후 다시 도전하기
+  const retryAfterShare = useCallback(async () => {
+    if (!userId) return
+    
+    // 최신 도전권 상태 확인
+    try {
+      const response = await fetch(`/api/user/tickets?userId=${userId}`)
+      if (!response.ok) {
+        throw new Error('도전권 조회 실패')
+      }
+      const data = await response.json()
+      const currentTickets = data.tickets || 0
+      
+      if (currentTickets > 0) {
+        // 도전권이 있으면 첫 화면으로 이동
+        setTickets(currentTickets)
+        setHasTicket(true)
+        setScreen('main')
+        resetQuiz()
+      } else {
+        // 도전권이 없으면 모달 표시
+        setTickets(0)
+        setHasTicket(false)
+        setShowNoTicketModal(true)
+      }
+    } catch (error) {
+      console.error('도전권 조회 오류:', error)
+      alert('도전권을 확인하는 중 오류가 발생했습니다.')
+    }
+  }, [userId, resetQuiz])
+
   // 보상 받기
   const claimReward = useCallback(() => {
     window.location.href = 'https://www.google.com'
@@ -388,8 +503,54 @@ export default function Home() {
   const currentQuestion = quizData[currentQuestionIndex]
   const displayTime = timeLeft % 1 === 0 ? timeLeft + '초' : timeLeft.toFixed(1) + '초'
 
+  // 도전권 없음 모달 닫기
+  const closeNoTicketModal = useCallback(() => {
+    setShowNoTicketModal(false)
+  }, [])
+
+  // 로딩 중일 때
+  if (isLoading) {
+    return (
+      <div className="container mx-auto px-5 py-6 max-w-md">
+        <div className="text-center mt-12">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-[#F93B4E]"></div>
+          <p className="mt-4 text-gray-600">로딩 중...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="container mx-auto px-5 py-6 max-w-md">
+    <>
+      {/* 도전권 없음 모달 */}
+      {showNoTicketModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 animate-fade-in">
+            <div className="text-center">
+              <div className="inline-block bg-blue-50 rounded-full p-4 mb-4">
+                <svg className="w-12 h-12 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-3">
+                도전권이 없어요
+              </h3>
+              <p className="text-gray-600 mb-6 leading-relaxed">
+                친구가 아직 링크에 접속하지 않았어요.<br />
+                친구가 링크를 클릭해야 도전권이 생겨요
+              </p>
+              <button
+                onClick={closeNoTicketModal}
+                className="w-full bg-[#F93B4E] text-white font-semibold py-3 px-6 rounded-xl text-base shadow-md hover:shadow-lg hover:bg-[#d83242] transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="container mx-auto px-5 py-6 max-w-md">
       {/* 메인 화면 */}
       {screen === 'main' && (
         <div className="text-center fade-in">
@@ -503,10 +664,10 @@ export default function Home() {
                 </svg>
               </div>
             </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-3 leading-tight">
+            <h2 className="text-xl font-bold text-gray-900 mb-3 leading-tight">
               앗 아쉬워요!<br />다시 도전해보시겠어요?
             </h2>
-            <p className="text-gray-500 text-sm mb-10">한 번 더 기회를 드려요!</p>
+            <p className="text-gray-500 text-sm mb-10">링크를 공유하면 한번 더 기회가 생겨요!</p>
             
             <div className="space-y-3 mt-8">
               <button
@@ -514,6 +675,12 @@ export default function Home() {
                 className="w-full bg-[#F93B4E] text-white font-semibold py-4 px-8 rounded-xl text-base shadow-md hover:shadow-lg hover:bg-[#d83242] transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
               >
                 공유하고 다시 도전하기
+              </button>
+              <button
+                onClick={retryAfterShare}
+                className="w-full bg-blue-50 text-blue-700 font-semibold py-4 px-8 rounded-xl text-base border border-blue-200 hover:bg-blue-100 transition-all duration-200"
+              >
+                공유했어요 다시 할래요!
               </button>
               {hasTicket && (
                 <button
@@ -552,6 +719,7 @@ export default function Home() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   )
 }
