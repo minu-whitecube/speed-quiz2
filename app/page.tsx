@@ -435,7 +435,7 @@ export default function Home() {
     if (typeof navigator !== 'undefined' && navigator.share) {
       navigator.share({
         title: '성공하면 1만 원! 스피드 퀴즈 도전',
-        text: '제한 시간이 초과되거나 오답 시 즉시 실패!',
+        text: '답을 아시겠나요? 퀴즈에 도전하세요.</br>퀴즈를 모두 맞추면 1만 원을 드려요.',
         url: shareUrl
       }).catch(() => {
         copyLink(shareUrl)

@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: '퀴즈 맞추고 1만 원 받기',
+  title: '챌린저스 스피드퀴즈',
   description: '답을 알 것 같다면 퀴즈에 도전하세요. 퀴즈를 모두 맞추면 1만 원을 드려요.',
   openGraph: {
     title: '퀴즈 맞추고 1만 원 받기',
