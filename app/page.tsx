@@ -24,13 +24,13 @@ const quizData = [
     correct: 4
   },
   {
-    question: '빨간색으로 표시된 제품의 정확한 이름은 무엇일까요?',
+    question: '빨간색 제품의 정확한 이름은 무엇일까요?',
     image: '/q4_vt.png',
     answers: ['VT 리들샷 100에센스', 'VT 피디알엔 캡슐 크림 100', 'VT 피디알엔 에센스 100', 'VT 리들샷 헤어 부스팅 앰플', 'VT 리들샷 포맨 올인원 100 엠플러스'],
     correct: 2
   },
   {
-    question: '빨간색으로 표시된 제품의 정확한 이름은 무엇일까요?',
+    question: '빨간색 제품의 정확한 이름은 무엇일까요?',
     image: '/q5_cnp.png',
     answers: ['차앤팍 더마앤서 액티브 부스트 PDRN 앰플', '차앤박 더마앤서 액티브 부스팅 PDRN 앰플', '차앤박 더마앤서 액티브 부스트 PDRN 앰플', '차앤박 더마앤서 액티브 부스트 PDRN 에센스', '차앤박 더마앤서 액티브 부스트 PNDR 에센스'],
     correct: 2
@@ -182,12 +182,21 @@ export default function Home() {
     const initialize = async () => {
       setIsLoading(true)
       
-      // 유저 ID 가져오기 또는 생성
+      // 유저 ID 가져오기 또는 생성 (동기 처리)
       const currentUserId = getOrCreateUserId()
       setUserId(currentUserId)
 
-      // 유저 초기화 (Supabase)
+      // 유저 상태 확인 (localStorage에 시도 기록은 유지) - 동기 처리
+      const attempted = localStorage.getItem('hasAttempted') === 'true'
+      setHasAttempted(attempted)
+
+      // 유저 초기화 (Supabase) - 이미 tickets와 isCompleted 정보 포함
       const userData = await initializeUser(currentUserId)
+      
+      if (!userData) {
+        setIsLoading(false)
+        return
+      }
 
       // 이미 성공한 유저면 성공 화면으로 바로 이동
       if (userData.isCompleted) {
@@ -196,70 +205,62 @@ export default function Home() {
         return
       }
 
-      // 추천인 처리 (URL 파라미터에서 ref 가져오기)
+      // 추천인 처리 (URL 파라미터에서 ref 가져오기) - 병렬/백그라운드 처리
       const urlParams = new URLSearchParams(window.location.search)
       const refId = urlParams.get('ref')
       
-      if (refId && refId !== currentUserId) {
-        // 초대 링크로 들어온 경우 처리
-        try {
-          const response = await fetch('/api/referral/process', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              referrerId: refId,
-              referredId: currentUserId,
-            }),
-          })
+      // 화면은 먼저 보여주고, 추천인 처리는 백그라운드에서 수행
+      const processReferral = async () => {
+        if (refId && refId !== currentUserId) {
+          try {
+            const response = await fetch('/api/referral/process', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                referrerId: refId,
+                referredId: currentUserId,
+              }),
+            })
 
-          if (response.ok) {
-            const data = await response.json()
-            if (data.ticketsAwarded) {
-              // 초대자가 도전권을 받았으므로, 현재 유저는 초대 링크 없이 접속
-              // URL에서 ref 파라미터 제거
-              const newUrl = window.location.pathname
-              window.history.replaceState({}, document.title, newUrl)
+            if (response.ok) {
+              const data = await response.json()
+              if (data.ticketsAwarded) {
+                // 초대자가 도전권을 받았으므로, 현재 유저는 초대 링크 없이 접속
+                // URL에서 ref 파라미터 제거
+                const newUrl = window.location.pathname
+                window.history.replaceState({}, document.title, newUrl)
+                // 도전권 상태 업데이트 (추천인 처리로 도전권이 추가된 경우)
+                if (data.referrerTickets !== undefined) {
+                  // 참고: referrerTickets는 초대자의 도전권이므로 현재 유저에게는 적용되지 않음
+                  // 하지만 추천인이 처리되었음을 확인할 수 있음
+                }
+              }
             }
+          } catch (error) {
+            console.error('초대 처리 오류:', error)
           }
-        } catch (error) {
-          console.error('초대 처리 오류:', error)
         }
       }
 
-      // 유저 상태 확인 (localStorage에 시도 기록은 유지)
-      const attempted = localStorage.getItem('hasAttempted') === 'true'
-      setHasAttempted(attempted)
-      
-      // 최신 도전권 수 확인 후 화면 설정
-      const latestTicketsResponse = await fetch(`/api/user/tickets?userId=${currentUserId}`)
-      if (latestTicketsResponse.ok) {
-        const latestTicketsData = await latestTicketsResponse.json()
-        const latestTickets = latestTicketsData.tickets || 0
-        
-        // 도전권 상태 업데이트
-        setTickets(latestTickets)
-        setHasTicket(latestTickets > 0)
-        
-        // 이미 시도했고 도전권이 없으면 실패 화면으로 이동
-        if (attempted && latestTickets <= 0) {
-          setScreen('fail')
-        }
-      } else {
-        // API 호출 실패 시에도 기본값 설정
-        setTickets(0)
-        setHasTicket(false)
-        if (attempted) {
-          setScreen('fail')
-        }
+      // 이미 시도했고 도전권이 없으면 실패 화면으로 이동
+      // initializeUser에서 이미 tickets 상태를 설정했으므로 userData.tickets 사용
+      if (attempted && (userData.tickets || 0) <= 0) {
+        setScreen('fail')
       }
-      
+
+      // 로딩 완료 - 화면 먼저 표시
       setIsLoading(false)
+      
+      // 추천인 처리는 백그라운드에서 실행 (화면 로딩을 블로킹하지 않음)
+      processReferral().catch(error => {
+        console.error('추천인 처리 중 오류:', error)
+      })
     }
 
     initialize()
-  }, [getOrCreateUserId, initializeUser, fetchTickets])
+  }, [getOrCreateUserId, initializeUser])
 
   // 퀴즈 시작
   const startQuiz = useCallback(async () => {
@@ -435,7 +436,7 @@ export default function Home() {
     if (typeof navigator !== 'undefined' && navigator.share) {
       navigator.share({
         title: '성공하면 1만 원! 스피드 퀴즈 도전',
-        text: '답을 아시겠나요? 퀴즈에 도전하세요.</br>퀴즈를 모두 맞추면 1만 원을 드려요.',
+        text: '답을 아시겠나요? 퀴즈에 도전하세요.\n퀴즈를 모두 맞추면 1만 원을 드려요.',
         url: shareUrl
       }).catch(() => {
         copyLink(shareUrl)
