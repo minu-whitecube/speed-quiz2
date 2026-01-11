@@ -38,7 +38,7 @@ const quizData = [
 ]
 
 // 각 문제별 제한 시간 (초)
-const questionTimes = [5, 5, 5, 4, 3.5]
+const questionTimes = [5, 5, 5, 4, 3]
 
 type Screen = 'main' | 'countdown' | 'quiz' | 'fail' | 'success'
 
@@ -57,6 +57,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true)
   const [showNoTicketModal, setShowNoTicketModal] = useState(false)
   const [isCompleted, setIsCompleted] = useState(false)
+  const [showShareModal, setShowShareModal] = useState(false)
   
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const progressBarRef = useRef<HTMLDivElement>(null)
@@ -71,6 +72,44 @@ export default function Home() {
       localStorage.setItem('quizUserId', storedUserId)
     }
     return storedUserId
+  }, [])
+
+  // localStorage에서 캐시된 유저 데이터 가져오기
+  const getCachedUserData = useCallback(() => {
+    if (typeof window === 'undefined') return null
+    
+    try {
+      const cached = localStorage.getItem('userDataCache')
+      if (!cached) return null
+      
+      const data = JSON.parse(cached)
+      const cacheAge = Date.now() - data.timestamp
+      const maxAge = 5 * 60 * 1000 // 5분 캐시 유효 시간
+      
+      if (cacheAge > maxAge) {
+        localStorage.removeItem('userDataCache')
+        return null
+      }
+      
+      return data
+    } catch (error) {
+      return null
+    }
+  }, [])
+
+  // 유저 데이터를 localStorage에 캐시
+  const cacheUserData = useCallback((tickets: number, isCompleted: boolean) => {
+    if (typeof window === 'undefined') return
+    
+    try {
+      localStorage.setItem('userDataCache', JSON.stringify({
+        tickets,
+        isCompleted,
+        timestamp: Date.now()
+      }))
+    } catch (error) {
+      // 캐시 실패는 무시 (필수 기능이 아님)
+    }
   }, [])
 
   // 유저 초기화 (Supabase)
@@ -92,6 +131,8 @@ export default function Home() {
       setTickets(data.tickets)
       setHasTicket(data.tickets > 0)
       setIsCompleted(data.isCompleted || false)
+      // 캐시 업데이트
+      cacheUserData(data.tickets, data.isCompleted || false)
       return data
     } catch (error) {
       console.error('유저 초기화 오류:', error)
@@ -99,7 +140,7 @@ export default function Home() {
       setTickets(1)
       setHasTicket(true)
     }
-  }, [])
+  }, [cacheUserData])
 
   // 도전권 확인
   const hasChallengeTicket = useCallback(() => {
@@ -126,10 +167,15 @@ export default function Home() {
       const data = await response.json()
       setTickets(data.tickets)
       setHasTicket(data.tickets > 0)
+      // 캐시 업데이트
+      const cachedData = getCachedUserData()
+      if (cachedData) {
+        cacheUserData(data.tickets, cachedData.isCompleted)
+      }
     } catch (error) {
       console.error('도전권 사용 오류:', error)
     }
-  }, [userId])
+  }, [userId, getCachedUserData, cacheUserData])
 
   // 도전권 조회
   const fetchTickets = useCallback(async () => {
@@ -143,10 +189,15 @@ export default function Home() {
       const data = await response.json()
       setTickets(data.tickets)
       setHasTicket(data.tickets > 0)
+      // 캐시 업데이트
+      const cachedData = getCachedUserData()
+      if (cachedData) {
+        cacheUserData(data.tickets, cachedData.isCompleted)
+      }
     } catch (error) {
       console.error('도전권 조회 오류:', error)
     }
-  }, [userId])
+  }, [userId, getCachedUserData, cacheUserData])
 
   // 이미지 프리로드 함수
   const preloadImage = useCallback((src: string) => {
@@ -190,8 +241,6 @@ export default function Home() {
     if (typeof window === 'undefined') return
 
     const initialize = async () => {
-      setIsLoading(true)
-      
       // 유저 ID 가져오기 또는 생성 (동기 처리)
       const currentUserId = getOrCreateUserId()
       setUserId(currentUserId)
@@ -200,26 +249,48 @@ export default function Home() {
       const attempted = localStorage.getItem('hasAttempted') === 'true'
       setHasAttempted(attempted)
 
-      // 유저 초기화 (Supabase) - 이미 tickets와 isCompleted 정보 포함
-      const userData = await initializeUser(currentUserId)
-      
-      if (!userData) {
-        setIsLoading(false)
-        return
+      // 캐시된 유저 데이터 먼저 확인
+      const cachedData = getCachedUserData()
+      if (cachedData) {
+        // 캐시된 데이터로 먼저 화면 표시 (낙관적 UI)
+        setTickets(cachedData.tickets)
+        setHasTicket(cachedData.tickets > 0)
+        setIsCompleted(cachedData.isCompleted || false)
+        
+        // 캐시된 데이터로 화면 결정
+        if (cachedData.isCompleted) {
+          setScreen('success')
+        } else if (attempted && cachedData.tickets <= 0) {
+          setScreen('fail')
+        }
+      } else {
+        // 캐시가 없으면 기본값 사용
+        setTickets(1)
+        setHasTicket(true)
+        setIsCompleted(false)
       }
 
-      // 이미 성공한 유저면 성공 화면으로 바로 이동
-      if (userData.isCompleted) {
-        setScreen('success')
-        setIsLoading(false)
-        return
-      }
+      // 로딩 완료 - 화면 먼저 표시 (캐시된 데이터 또는 기본값 사용)
+      setIsLoading(false)
 
-      // 추천인 처리 (URL 파라미터에서 ref 가져오기) - 병렬/백그라운드 처리
+      // API 호출은 백그라운드에서 수행 (화면 로딩을 블로킹하지 않음)
+      initializeUser(currentUserId).then(userData => {
+        if (!userData) return
+
+        // API 결과로 상태 업데이트
+        if (userData.isCompleted) {
+          setScreen('success')
+        } else if (attempted && (userData.tickets || 0) <= 0) {
+          setScreen('fail')
+        }
+      }).catch(error => {
+        console.error('유저 초기화 오류:', error)
+      })
+
+      // 추천인 처리 (URL 파라미터에서 ref 가져오기) - 백그라운드 처리
       const urlParams = new URLSearchParams(window.location.search)
       const refId = urlParams.get('ref')
       
-      // 화면은 먼저 보여주고, 추천인 처리는 백그라운드에서 수행
       const processReferral = async () => {
         if (refId && refId !== currentUserId) {
           try {
@@ -241,12 +312,9 @@ export default function Home() {
                 // URL에서 ref 파라미터 제거
                 const newUrl = window.location.pathname
                 window.history.replaceState({}, document.title, newUrl)
-                // 도전권 상태 업데이트 (추천인 처리로 도전권이 추가된 경우)
-                if (data.referrerTickets !== undefined) {
-                  // 참고: referrerTickets는 초대자의 도전권이므로 현재 유저에게는 적용되지 않음
-                  // 하지만 추천인이 처리되었음을 확인할 수 있음
-                }
               }
+              // 추천인 처리 후 도전권 상태 업데이트
+              await initializeUser(currentUserId)
             }
           } catch (error) {
             console.error('초대 처리 오류:', error)
@@ -254,15 +322,6 @@ export default function Home() {
         }
       }
 
-      // 이미 시도했고 도전권이 없으면 실패 화면으로 이동
-      // initializeUser에서 이미 tickets 상태를 설정했으므로 userData.tickets 사용
-      if (attempted && (userData.tickets || 0) <= 0) {
-        setScreen('fail')
-      }
-
-      // 로딩 완료 - 화면 먼저 표시
-      setIsLoading(false)
-      
       // 추천인 처리는 백그라운드에서 실행 (화면 로딩을 블로킹하지 않음)
       processReferral().catch(error => {
         console.error('추천인 처리 중 오류:', error)
@@ -270,7 +329,7 @@ export default function Home() {
     }
 
     initialize()
-  }, [getOrCreateUserId, initializeUser])
+  }, [getOrCreateUserId, initializeUser, getCachedUserData])
 
   // 퀴즈 시작
   const startQuiz = useCallback(async () => {
@@ -345,6 +404,12 @@ export default function Home() {
     setHasAttempted(true)
     setIsCompleted(true)
     
+    // 캐시 업데이트 (성공 상태로)
+    const cachedData = getCachedUserData()
+    if (cachedData) {
+      cacheUserData(cachedData.tickets, true)
+    }
+    
     // 서버에 성공 여부 업데이트 (백그라운드에서 처리하여 화면 전환 속도 향상)
     if (userId) {
       fetch('/api/user/complete', {
@@ -353,11 +418,17 @@ export default function Home() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ userId }),
+      }).then(() => {
+        // API 성공 후 캐시도 업데이트
+        const cachedData = getCachedUserData()
+        if (cachedData) {
+          cacheUserData(cachedData.tickets, true)
+        }
       }).catch(error => {
         console.error('성공 여부 업데이트 오류:', error)
       })
     }
-  }, [userId])
+  }, [userId, getCachedUserData, cacheUserData])
 
   // 문제 시작
   useEffect(() => {
@@ -607,13 +678,22 @@ export default function Home() {
   const shareAndRetry = useCallback(() => {
     const shareUrl = getShareUrl()
     
+    // 카카오톡 브라우저 감지
+    const isKakaoTalk = typeof navigator !== 'undefined' && /KAKAOTALK|KAKAO/i.test(navigator.userAgent)
+    
+    if (isKakaoTalk) {
+      // 카카오톡 브라우저에서는 공유 모달 표시
+      setShowShareModal(true)
+      return
+    }
+    
     if (typeof navigator !== 'undefined' && navigator.share) {
       // iOS 감지
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
       
       // iOS에서는 text에 URL을 포함시켜야 공유 시트에서 링크 복사가 제대로 작동함
       const shareData: { title?: string; text?: string; url?: string } = {
-        title: '성공하면 1만 원! 스피드 퀴즈 도전',
+        title: '성공하면 1만 원! 챌린저스 스피드퀴즈',
       }
       
       if (isIOS) {
@@ -728,6 +808,45 @@ export default function Home() {
 
   return (
     <>
+      {/* 공유 모달 (카카오톡 브라우저용) */}
+      {showShareModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 animate-fade-in">
+            <div className="text-center">
+              <div className="inline-block bg-blue-50 rounded-full p-4 mb-4">
+                <svg className="w-12 h-12 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path>
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-3">
+                링크 공유하기
+              </h3>
+              <p className="text-gray-600 mb-6 leading-relaxed">
+                아래 링크를 복사하여<br />
+                카카오톡 대화방에 붙여넣으세요
+              </p>
+              <div className="mb-4">
+                <button
+                  onClick={() => {
+                    copyLink(getShareUrl())
+                    setShowShareModal(false)
+                  }}
+                  className="w-full bg-[#F93B4E] text-white font-semibold py-3 px-6 rounded-xl text-base shadow-md hover:shadow-lg hover:bg-[#d83242] transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 mb-3"
+                >
+                  링크 복사하기
+                </button>
+                <button
+                  onClick={() => setShowShareModal(false)}
+                  className="w-full bg-gray-50 text-gray-700 font-semibold py-3 px-6 rounded-xl text-base border border-gray-200 hover:bg-gray-100 transition-all duration-200"
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 도전권 없음 모달 */}
       {showNoTicketModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -761,14 +880,19 @@ export default function Home() {
       {screen === 'main' && (
         <div className="text-center fade-in">
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 mt-12">
-            <div className="mb-8">
-              <div className="inline-block bg-[#F93B4E] bg-opacity-10 rounded-full p-4 mb-6">
-                <svg className="w-12 h-12 text-[#F93B4E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
-                </svg>
+            <div className="mb-0 -mt-16">
+              <div className="inline-block mb-0">
+                <Image
+                  src="/logo_challengers.png"
+                  alt="챌린저스 로고"
+                  width={96}
+                  height={96}
+                  className="w-48 h-48 object-contain"
+                  priority
+                />
               </div>
             </div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-3 leading-tight">
+            <h1 className="text-3xl font-bold text-gray-900 mb-3 leading-tight -mt-12">
               성공하면 1만 원!<br /><span className="text-[#F93B4E]">스피드 퀴즈</span> 도전
             </h1>
             <p className="text-gray-600 mb-4 text-base leading-relaxed">
