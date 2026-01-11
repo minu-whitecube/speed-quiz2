@@ -526,6 +526,14 @@ export default function Home() {
     return baseUrl + '?ref=' + encodeURIComponent(userId)
   }, [userId])
 
+  // 공유 텍스트 생성 (메시지 + 링크)
+  const getShareText = useCallback(() => {
+    const shareUrl = getShareUrl()
+    return `답을 알 것 같다면 퀴즈에 도전하세요. 
+퀴즈를 모두 맞추면 1만 원을 드려요.
+${shareUrl}`
+  }, [getShareUrl])
+
   // 링크 복사 (iOS Safari 최적화)
   const copyLink = useCallback((url: string) => {
     // iOS Safari를 포함한 최신 브라우저에서 Clipboard API 사용
@@ -819,21 +827,21 @@ export default function Home() {
                 </svg>
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-3">
-                링크 공유하기
+                공유하기
               </h3>
-              <p className="text-gray-600 mb-6 leading-relaxed">
-                아래 링크를 복사하여<br />
+              <p className="text-gray-600 mb-4 leading-relaxed text-sm">
+                아래 내용을 복사하여<br />
                 카카오톡 대화방에 붙여넣으세요
               </p>
               <div className="mb-4">
                 <button
                   onClick={() => {
-                    copyLink(getShareUrl())
+                    copyLink(getShareText())
                     setShowShareModal(false)
                   }}
                   className="w-full bg-[#F93B4E] text-white font-semibold py-3 px-6 rounded-xl text-base shadow-md hover:shadow-lg hover:bg-[#d83242] transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 mb-3"
                 >
-                  링크 복사하기
+                  메시지와 링크 복사하기
                 </button>
                 <button
                   onClick={() => setShowShareModal(false)}
