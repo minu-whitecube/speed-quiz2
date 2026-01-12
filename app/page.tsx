@@ -2,6 +2,17 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
+import {
+  trackQuizStart,
+  trackAnswerSelect,
+  trackQuizComplete,
+  trackQuizFail,
+  trackShareClick,
+  trackShareComplete,
+  trackRetryClick,
+  trackRewardClaim,
+  trackGoToMain,
+} from '@/lib/analytics'
 
 // 퀴즈 데이터
 const quizData = [
@@ -38,7 +49,7 @@ const quizData = [
 ]
 
 // 각 문제별 제한 시간 (초)
-const questionTimes = [5, 5, 5, 4, 3]
+const questionTimes = [5, 4.8, 4.5, 3.7, 2.7]
 
 type Screen = 'main' | 'countdown' | 'quiz' | 'fail' | 'success'
 
@@ -344,6 +355,7 @@ export default function Home() {
       return
     }
 
+    trackQuizStart()
     await useChallengeTicket()
     // 퀴즈 시작 시 문제 인덱스와 상태 리셋
     setCurrentQuestionIndex(0)
@@ -390,7 +402,10 @@ export default function Home() {
   }, [screen, preloadImage])
 
   // 실패 화면 표시
-  const showFailScreen = useCallback(async () => {
+  const showFailScreen = useCallback(async (failReason?: { question_number: number; reason: 'wrong_answer' | 'timeout' }) => {
+    if (failReason) {
+      trackQuizFail(failReason)
+    }
     setScreen('fail')
     localStorage.setItem('hasAttempted', 'true')
     setHasAttempted(true)
@@ -399,6 +414,7 @@ export default function Home() {
 
   // 성공 화면 표시
   const showSuccessScreen = useCallback(async () => {
+    trackQuizComplete()
     setScreen('success')
     localStorage.setItem('hasAttempted', 'true')
     setHasAttempted(true)
@@ -476,7 +492,10 @@ export default function Home() {
           clearInterval(timerRef.current)
           timerRef.current = null
         }
-        showFailScreen()
+        showFailScreen({
+          question_number: currentQuestionIndex + 1,
+          reason: 'timeout',
+        })
       }
     }, updateInterval)
 
@@ -498,10 +517,21 @@ export default function Home() {
     // 선택된 답안 표시
     setSelectedAnswerIndex(index)
 
-    if (index !== correctIndex) {
+    const isCorrect = index === correctIndex
+    // 답변 선택 이벤트 트래킹
+    trackAnswerSelect({
+      question_number: currentQuestionIndex + 1,
+      is_correct: isCorrect,
+      time_remaining: timeLeft,
+    })
+
+    if (!isCorrect) {
       // 오답인 경우 빠른 전환 (300ms -> 250ms)
       setTimeout(() => {
-        showFailScreen()
+        showFailScreen({
+          question_number: currentQuestionIndex + 1,
+          reason: 'wrong_answer',
+        })
       }, 250)
       return
     }
@@ -683,7 +713,8 @@ ${shareUrl}`
   }, [])
 
   // 공유하고 다시 도전
-  const shareAndRetry = useCallback(() => {
+  const shareAndRetry = useCallback((screenType: 'fail' | 'success' = 'fail') => {
+    trackShareClick({ screen: screenType })
     const shareUrl = getShareUrl()
     
     // 카카오톡 브라우저 감지
@@ -713,18 +744,25 @@ ${shareUrl}`
         shareData.url = shareUrl
       }
       
-      navigator.share(shareData).catch(() => {
-        // 공유 취소 시 링크 복사
-        copyLink(shareUrl)
-      })
+      navigator.share(shareData)
+        .then(() => {
+          trackShareComplete({ method: 'native_share', screen: screenType })
+        })
+        .catch(() => {
+          // 공유 취소 시 링크 복사
+          copyLink(shareUrl)
+          trackShareComplete({ method: 'clipboard', screen: screenType })
+        })
     } else {
       // navigator.share를 지원하지 않는 경우 링크 복사
       copyLink(shareUrl)
+      trackShareComplete({ method: 'clipboard', screen: screenType })
     }
   }, [getShareUrl, copyLink])
 
   // 메인으로 돌아가기
   const goToMain = useCallback(async () => {
+    trackGoToMain()
     // 성공한 유저는 메인으로 돌아갈 수 없음
     if (isCompleted) {
       setScreen('success')
@@ -758,6 +796,7 @@ ${shareUrl}`
 
   // 공유 후 다시 도전하기
   const retryAfterShare = useCallback(async () => {
+    trackRetryClick()
     if (!userId) return
     
     // 최신 도전권 상태 확인
@@ -789,6 +828,7 @@ ${shareUrl}`
 
   // 보상 받기
   const claimReward = useCallback(() => {
+    trackRewardClaim()
     if (!userId) return
     const rewardUrl = `https://tally.so/r/NplZ6l?utm_source=viral&utm_content=${encodeURIComponent(userId)}`
     window.location.href = rewardUrl
@@ -837,6 +877,8 @@ ${shareUrl}`
                 <button
                   onClick={() => {
                     copyLink(getShareText())
+                    const currentScreen = screen === 'success' ? 'success' : 'fail'
+                    trackShareComplete({ method: 'kakaotalk_modal', screen: currentScreen })
                     setShowShareModal(false)
                   }}
                   className="w-full bg-[#F93B4E] text-white font-semibold py-3 px-6 rounded-xl text-base shadow-md hover:shadow-lg hover:bg-[#d83242] transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 mb-3"
@@ -1015,7 +1057,7 @@ ${shareUrl}`
             
             <div className="space-y-3 mt-8">
               <button
-                onClick={shareAndRetry}
+                onClick={() => shareAndRetry('fail')}
                 className="w-full bg-[#F93B4E] text-white font-semibold py-4 px-8 rounded-xl text-base shadow-md hover:shadow-lg hover:bg-[#d83242] transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
               >
                 공유하고 다시 도전하기
@@ -1062,7 +1104,7 @@ ${shareUrl}`
                 1만원 받기
               </button>
               <button
-                onClick={shareAndRetry}
+                onClick={() => shareAndRetry('success')}
                 className="w-full bg-blue-500 text-white font-semibold py-4 px-8 rounded-xl text-base shadow-md hover:shadow-lg hover:bg-blue-600 transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
               >
                 친구에게 공유하기

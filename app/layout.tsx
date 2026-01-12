@@ -5,6 +5,11 @@ import GoogleAnalytics from '@/components/GoogleAnalytics'
 export const metadata: Metadata = {
   title: '챌린저스 스피드퀴즈',
   description: '답을 알 것 같다면 퀴즈에 도전하세요. 퀴즈를 모두 맞추면 1만 원을 드려요.',
+  icons: {
+    icon: '/favicon.png',
+    shortcut: '/favicon.png',
+    apple: '/favicon.png',
+  },
   openGraph: {
     title: '퀴즈 맞추고 1만 원 받기',
     description: '이미지를 보고 알맞은 답을 골라요.',

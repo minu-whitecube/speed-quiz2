@@ -3,8 +3,8 @@ declare global {
   interface Window {
     gtag?: (
       command: 'config' | 'event' | 'js' | 'set',
-      targetId: string | Date,
-      config?: {
+      targetIdOrEventName: string | Date,
+      configOrParams?: {
         page_path?: string
         [key: string]: any
       }
