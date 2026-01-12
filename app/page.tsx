@@ -356,7 +356,8 @@ export default function Home() {
     }
 
     trackQuizStart()
-    await useChallengeTicket()
+    
+    // Optimistic UI: API 호출을 기다리지 않고 먼저 카운트다운 화면으로 전환
     // 퀴즈 시작 시 문제 인덱스와 상태 리셋
     setCurrentQuestionIndex(0)
     setTimeLeft(5)
@@ -370,6 +371,12 @@ export default function Home() {
     }
     setScreen('countdown')
     setCountdownNumber(3)
+    
+    // 도전권 사용 API 호출은 백그라운드에서 처리 (화면 전환을 블로킹하지 않음)
+    useChallengeTicket().catch(error => {
+      console.error('도전권 사용 오류:', error)
+      // 에러 발생 시에도 사용자 경험을 방해하지 않도록 처리
+    })
   }, [hasChallengeTicket, useChallengeTicket, isCompleted])
 
   // 카운트다운
