@@ -1,27 +1,24 @@
 'use client'
 
 import Script from 'next/script'
-import { usePathname, useSearchParams } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { useEffect } from 'react'
 
 const GA_MEASUREMENT_ID = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID
 
 export default function GoogleAnalytics() {
   const pathname = usePathname()
-  const searchParams = useSearchParams()
 
   useEffect(() => {
     if (!GA_MEASUREMENT_ID) return
 
-    const url = pathname + (searchParams?.toString() ? `?${searchParams.toString()}` : '')
-    
-    // 페이지뷰 추적
+    // 페이지뷰 추적 (GA4는 자동으로 URL을 추적하므로 pathname만 전달)
     if (typeof window !== 'undefined' && window.gtag) {
       window.gtag('config', GA_MEASUREMENT_ID, {
-        page_path: url,
+        page_path: pathname,
       })
     }
-  }, [pathname, searchParams])
+  }, [pathname])
 
   if (!GA_MEASUREMENT_ID) {
     return null
