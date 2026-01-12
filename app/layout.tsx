@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import GoogleAnalytics from '@/components/GoogleAnalytics'
 
 export const metadata: Metadata = {
   title: '챌린저스 스피드퀴즈',
@@ -32,7 +33,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ko">
-      <body className="bg-white min-h-screen">{children}</body>
+      <body className="bg-white min-h-screen">
+        <GoogleAnalytics />
+        {children}
+      </body>
     </html>
   )
 }
