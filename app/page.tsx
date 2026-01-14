@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
+import { useRouter } from 'next/navigation'
 import {
   trackQuizStart,
   trackAnswerSelect,
@@ -54,6 +55,7 @@ const questionTimes = [5, 4.8, 4.5, 3.7, 2.7]
 type Screen = 'main' | 'countdown' | 'quiz' | 'fail' | 'success'
 
 export default function Home() {
+  const router = useRouter()
   const [screen, setScreen] = useState<Screen>('main')
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
   const [timeLeft, setTimeLeft] = useState(5)
@@ -73,6 +75,18 @@ export default function Home() {
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const progressBarRef = useRef<HTMLDivElement>(null)
   const preloadedImagesRef = useRef<Set<string>>(new Set())
+
+  // 이벤트 종료 체크
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    
+    // 환경 변수로 이벤트 종료 여부 확인
+    const isEventEnded = process.env.NEXT_PUBLIC_EVENT_ENDED === 'true'
+    
+    if (isEventEnded) {
+      router.push('/event-ended')
+    }
+  }, [router])
 
   // 유저 ID 생성 또는 가져오기 (localStorage에 저장하여 유지)
   const getOrCreateUserId = useCallback(() => {
