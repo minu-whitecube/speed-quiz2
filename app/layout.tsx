@@ -15,7 +15,7 @@ export const metadata: Metadata = {
     description: '이미지를 보고 알맞은 답을 골라요.',
     images: [
       {
-        url: '/og_image.png',
+        url: '/og_image2.png',
         width: 1200,
         height: 630,
         alt: '퀴즈 맞추고 1만 원 받기',
@@ -27,7 +27,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: '퀴즈 맞추고 1만 원 받기',
     description: '이미지를 보고 알맞은 답을 골라요.',
-    images: ['/og_image.png'],
+    images: ['/og_image2.png'],
   },
 }
 

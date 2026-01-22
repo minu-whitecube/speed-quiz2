@@ -18,33 +18,33 @@ import {
 // 퀴즈 데이터
 const quizData = [
   {
-    question: '이 제품의 카테고리는 무엇일까요?',
-    image: '/q1_drg.png',
-    answers: ['스킨케어', '메이크업', '선케어', '마스크팩', '헤어케어'],
+    question: '이것은 누구의 동상일까요?',
+    image: '/q1_sejong.png',
+    answers: ['이순신', '영조', '세종대왕', '광해군', '정조'],
     correct: 2
   },
   {
-    question: '이 제품의 브랜드는 어디일까요?',
-    image: '/q2_whitch.jpg',
-    answers: ['마녀공장', '웰라쥬', '메디힐', '토리든', '달바'],
+    question: '이 과자의 이름은 무엇일까요?',
+    image: '/q2_snack.png',
+    answers: ['칸쵸', '새우깡', '씨리얼', '초코송이', '홈런볼'],
     correct: 0
   },
   {
-    question: '이 제품의 정확한 이름은 무엇일까요?',
-    image: '/q3_wellage.png',
-    answers: ['헤라 블랙쿠션', '청미정 다시마 샴푸', '메디힐 에센셜 마스크팩', '롬앤 더 쥬시 래스팅팅', '웰라쥬 리얼 히알루로닉 블루 100 앰플'],
+    question: '이 건축물은 어느 나라에 있을까요?',
+    image: '/q3_italy.png',
+    answers: ['프랑스', '독일', '스페인', '스위스', '이탈리아'],
     correct: 4
   },
   {
-    question: '빨간색 제품의 정확한 이름은 무엇일까요?',
-    image: '/q4_vt.png',
-    answers: ['VT 리들샷 100에센스', 'VT 피디알엔 캡슐 크림 100', 'VT 피디알엔 에센스 100', 'VT 리들샷 헤어 부스팅 앰플', 'VT 리들샷 포맨 올인원 100 엠플러스'],
+    question: '이것은 어느 나라의 국기 일까요?',
+    image: '/q4_flag.png',
+    answers: ['오스트레일리아', '오스트리아', '뉴질랜드', '크로아티아', '네덜란드'],
     correct: 2
   },
   {
-    question: '빨간색 제품의 정확한 이름은 무엇일까요?',
-    image: '/q5_cnp.png',
-    answers: ['차앤팍 더마앤서 액티브 부스트 PDRN 앰플', '차앤박 더마앤서 액티브 부스팅 PDRN 앰플', '차앤박 더마앤서 액티브 부스트 PDRN 앰플', '차앤박 더마앤서 액티브 부스트 PDRN 에센스', '차앤박 더마앤서 액티브 부스트 PNDR 에센스'],
+    question: '이 사람의 풀네임은 무엇일까요?',
+    image: '/q5_beethoven.png',
+    answers: ['요한 세바스티안 베토벤', '프레데리크 베토벤', '루트비히 판 베토벤', '구스타프 베토벤', '리하르트 베토벤'],
     correct: 2
   }
 ]
