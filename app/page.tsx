@@ -851,7 +851,7 @@ ${shareUrl}`
   const claimReward = useCallback(() => {
     trackRewardClaim()
     if (!userId) return
-    const rewardUrl = `https://tally.so/r/NplZ6l?utm_source=viral&utm_content=${encodeURIComponent(userId)}`
+    const rewardUrl = `https://tally.so/r/NplZ6l?utm_source=viral&utm_campaign=speed-quiz&utm_content=${encodeURIComponent(userId)}`
     window.location.href = rewardUrl
   }, [userId])
 
