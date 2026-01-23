@@ -21,7 +21,7 @@ git commit -m "Initial commit: Next.js 스피드 퀴즈 앱"
 2. 우측 상단의 **+** 버튼 클릭 → **New repository** 선택
 3. 저장소 정보 입력:
    - **Repository name**: `speed-quiz2` (또는 원하는 이름)
-   - **Description**: "성공하면 1만 원! 스피드 퀴즈 도전 앱"
+   - **Description**: "성공하면 5천 원! 스피드 퀴즈 도전 앱"
    - **Public** 또는 **Private** 선택
    - ⚠️ **"Initialize this repository with a README"** 체크 해제 (이미 로컬에 파일이 있으므로)
 4. **Create repository** 클릭

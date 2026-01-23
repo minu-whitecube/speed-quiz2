@@ -76,6 +76,9 @@ export default function Home() {
   const progressBarRef = useRef<HTMLDivElement>(null)
   const preloadedImagesRef = useRef<Set<string>>(new Set())
 
+  // 무제한 모드 체크
+  const isUnlimitedMode = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_UNLIMITED_MODE === 'true'
+
   // 이벤트 종료 체크
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -274,6 +277,7 @@ export default function Home() {
       const attempted = localStorage.getItem('hasAttempted') === 'true'
       setHasAttempted(attempted)
 
+      // 유저 초기화는 무제한 모드 여부와 관계없이 항상 실행 (DB에 기록)
       // 캐시된 유저 데이터 먼저 확인
       const cachedData = getCachedUserData()
       if (cachedData) {
@@ -282,11 +286,13 @@ export default function Home() {
         setHasTicket(cachedData.tickets > 0)
         setIsCompleted(cachedData.isCompleted || false)
         
-        // 캐시된 데이터로 화면 결정
-        if (cachedData.isCompleted) {
-          setScreen('success')
-        } else if (attempted && cachedData.tickets <= 0) {
-          setScreen('fail')
+        // 캐시된 데이터로 화면 결정 (무제한 모드가 아닐 때만)
+        if (!isUnlimitedMode) {
+          if (cachedData.isCompleted) {
+            setScreen('success')
+          } else if (attempted && cachedData.tickets <= 0) {
+            setScreen('fail')
+          }
         }
       } else {
         // 캐시가 없으면 기본값 사용
@@ -295,66 +301,71 @@ export default function Home() {
         setIsCompleted(false)
       }
 
-      // 로딩 완료 - 화면 먼저 표시 (캐시된 데이터 또는 기본값 사용)
-      setIsLoading(false)
-
       // API 호출은 백그라운드에서 수행 (화면 로딩을 블로킹하지 않음)
+      // 무제한 모드 여부와 관계없이 user_id는 DB에 기록
       initializeUser(currentUserId).then(userData => {
         if (!userData) return
 
-        // API 결과로 상태 업데이트
-        if (userData.isCompleted) {
-          setScreen('success')
-        } else if (attempted && (userData.tickets || 0) <= 0) {
-          setScreen('fail')
+        // API 결과로 상태 업데이트 (무제한 모드가 아닐 때만 화면 상태 변경)
+        if (!isUnlimitedMode) {
+          if (userData.isCompleted) {
+            setScreen('success')
+          } else if (attempted && (userData.tickets || 0) <= 0) {
+            setScreen('fail')
+          }
         }
       }).catch(error => {
         console.error('유저 초기화 오류:', error)
       })
 
-      // 추천인 처리 (URL 파라미터에서 ref 가져오기) - 백그라운드 처리
-      const urlParams = new URLSearchParams(window.location.search)
-      const refId = urlParams.get('ref')
-      
-      const processReferral = async () => {
-        if (refId && refId !== currentUserId) {
-          try {
-            const response = await fetch('/api/referral/process', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                referrerId: refId,
-                referredId: currentUserId,
-              }),
-            })
+      // 추천인 처리 (URL 파라미터에서 ref 가져오기) - 무제한 모드가 아닐 때만
+      if (!isUnlimitedMode) {
+        const urlParams = new URLSearchParams(window.location.search)
+        const refId = urlParams.get('ref')
+        
+        const processReferral = async () => {
+          if (refId && refId !== currentUserId) {
+            try {
+              const response = await fetch('/api/referral/process', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  referrerId: refId,
+                  referredId: currentUserId,
+                }),
+              })
 
-            if (response.ok) {
-              const data = await response.json()
-              if (data.ticketsAwarded) {
-                // 초대자가 도전권을 받았으므로, 현재 유저는 초대 링크 없이 접속
-                // URL에서 ref 파라미터 제거
-                const newUrl = window.location.pathname
-                window.history.replaceState({}, document.title, newUrl)
+              if (response.ok) {
+                const data = await response.json()
+                if (data.ticketsAwarded) {
+                  // 초대자가 도전권을 받았으므로, 현재 유저는 초대 링크 없이 접속
+                  // URL에서 ref 파라미터 제거
+                  const newUrl = window.location.pathname
+                  window.history.replaceState({}, document.title, newUrl)
+                }
+                // 추천인 처리 후 도전권 상태 업데이트
+                await initializeUser(currentUserId)
               }
-              // 추천인 처리 후 도전권 상태 업데이트
-              await initializeUser(currentUserId)
+            } catch (error) {
+              console.error('초대 처리 오류:', error)
             }
-          } catch (error) {
-            console.error('초대 처리 오류:', error)
           }
         }
+
+        // 추천인 처리는 백그라운드에서 실행 (화면 로딩을 블로킹하지 않음)
+        processReferral().catch(error => {
+          console.error('추천인 처리 중 오류:', error)
+        })
       }
 
-      // 추천인 처리는 백그라운드에서 실행 (화면 로딩을 블로킹하지 않음)
-      processReferral().catch(error => {
-        console.error('추천인 처리 중 오류:', error)
-      })
+      // 로딩 완료 - 화면 먼저 표시
+      setIsLoading(false)
     }
 
     initialize()
-  }, [getOrCreateUserId, initializeUser, getCachedUserData])
+  }, [getOrCreateUserId, initializeUser, getCachedUserData, isUnlimitedMode])
 
   // 퀴즈 시작
   const startQuiz = useCallback(async () => {
@@ -364,7 +375,8 @@ export default function Home() {
       return
     }
     
-    if (!hasChallengeTicket()) {
+    // 무제한 모드가 아닐 때만 도전권 체크
+    if (!isUnlimitedMode && !hasChallengeTicket()) {
       alert('도전권이 없습니다. 공유하고 다시 도전하세요.')
       return
     }
@@ -386,12 +398,14 @@ export default function Home() {
     setScreen('countdown')
     setCountdownNumber(3)
     
-    // 도전권 사용 API 호출은 백그라운드에서 처리 (화면 전환을 블로킹하지 않음)
-    useChallengeTicket().catch(error => {
-      console.error('도전권 사용 오류:', error)
-      // 에러 발생 시에도 사용자 경험을 방해하지 않도록 처리
-    })
-  }, [hasChallengeTicket, useChallengeTicket, isCompleted])
+    // 무제한 모드가 아닐 때만 도전권 사용 API 호출 (백그라운드에서 처리)
+    if (!isUnlimitedMode) {
+      useChallengeTicket().catch(error => {
+        console.error('도전권 사용 오류:', error)
+        // 에러 발생 시에도 사용자 경험을 방해하지 않도록 처리
+      })
+    }
+  }, [hasChallengeTicket, useChallengeTicket, isCompleted, isUnlimitedMode])
 
   // 카운트다운
   useEffect(() => {
@@ -430,8 +444,11 @@ export default function Home() {
     setScreen('fail')
     localStorage.setItem('hasAttempted', 'true')
     setHasAttempted(true)
-    await fetchTickets()
-  }, [fetchTickets])
+    // 무제한 모드가 아닐 때만 도전권 조회
+    if (!isUnlimitedMode) {
+      await fetchTickets()
+    }
+  }, [fetchTickets, isUnlimitedMode])
 
   // 성공 화면 표시
   const showSuccessScreen = useCallback(async () => {
@@ -441,13 +458,15 @@ export default function Home() {
     setHasAttempted(true)
     setIsCompleted(true)
     
-    // 캐시 업데이트 (성공 상태로)
-    const cachedData = getCachedUserData()
-    if (cachedData) {
-      cacheUserData(cachedData.tickets, true)
+    // 캐시 업데이트 (성공 상태로) - 무제한 모드가 아닐 때만
+    if (!isUnlimitedMode) {
+      const cachedData = getCachedUserData()
+      if (cachedData) {
+        cacheUserData(cachedData.tickets, true)
+      }
     }
     
-    // 서버에 성공 여부 업데이트 (백그라운드에서 처리하여 화면 전환 속도 향상)
+    // 서버에 성공 여부 업데이트 (무제한 모드 여부와 관계없이 DB에 기록)
     if (userId) {
       fetch('/api/user/complete', {
         method: 'POST',
@@ -456,16 +475,18 @@ export default function Home() {
         },
         body: JSON.stringify({ userId }),
       }).then(() => {
-        // API 성공 후 캐시도 업데이트
-        const cachedData = getCachedUserData()
-        if (cachedData) {
-          cacheUserData(cachedData.tickets, true)
+        // API 성공 후 캐시도 업데이트 (무제한 모드가 아닐 때만)
+        if (!isUnlimitedMode) {
+          const cachedData = getCachedUserData()
+          if (cachedData) {
+            cacheUserData(cachedData.tickets, true)
+          }
         }
       }).catch(error => {
         console.error('성공 여부 업데이트 오류:', error)
       })
     }
-  }, [userId, getCachedUserData, cacheUserData])
+  }, [userId, getCachedUserData, cacheUserData, isUnlimitedMode])
 
   // 문제 시작
   useEffect(() => {
@@ -581,7 +602,7 @@ export default function Home() {
   const getShareText = useCallback(() => {
     const shareUrl = getShareUrl()
     return `답을 알 것 같다면 퀴즈에 도전하세요. 
-퀴즈를 모두 맞추면 1만 원을 드려요.
+퀴즈를 모두 맞추면 5천 원을 드려요.
 ${shareUrl}`
   }, [getShareUrl])
 
@@ -753,15 +774,15 @@ ${shareUrl}`
       
       // iOS에서는 text에 URL을 포함시켜야 공유 시트에서 링크 복사가 제대로 작동함
       const shareData: { title?: string; text?: string; url?: string } = {
-        title: '성공하면 1만 원! 챌린저스 스피드퀴즈',
+        title: '성공하면 5천 원! 챌린저스 스피드퀴즈',
       }
       
       if (isIOS) {
         // iOS에서는 text에 URL을 포함 (공유 시트에서 링크 복사 시 URL이 포함되도록)
-        shareData.text = '답을 아시겠나요? 퀴즈에 도전하세요.\n퀴즈를 모두 맞추면 1만 원을 드려요.\n\n' + shareUrl
+        shareData.text = '답을 아시겠나요? 퀴즈에 도전하세요.\n퀴즈를 모두 맞추면 5천 원을 드려요.\n\n' + shareUrl
       } else {
         // 다른 플랫폼에서는 text와 url을 분리
-        shareData.text = '답을 아시겠나요? 퀴즈에 도전하세요.\n퀴즈를 모두 맞추면 1만 원을 드려요.'
+        shareData.text = '답을 아시겠나요? 퀴즈에 도전하세요.\n퀴즈를 모두 맞추면 5천 원을 드려요.'
         shareData.url = shareUrl
       }
       
@@ -964,7 +985,7 @@ ${shareUrl}`
               </div>
             </div>
             <h1 className="text-3xl font-bold text-gray-900 mb-3 leading-tight -mt-12">
-              성공하면 1만 원!<br /><span className="text-[#F93B4E]">스피드 퀴즈</span> 도전
+              성공하면 5천 원!<br /><span className="text-[#F93B4E]">스피드 퀴즈</span> 도전
             </h1>
             <p className="text-gray-600 mb-4 text-base leading-relaxed">
               문제를 읽고 사진에 알맞은<br />정답을 고르세요
@@ -1073,29 +1094,49 @@ ${shareUrl}`
             <h2 className="text-xl font-bold text-gray-900 mb-3 leading-tight">
               앗 아쉬워요!<br />다시 도전해보시겠어요?
             </h2>
-            <p className="text-gray-500 text-sm ">링크를 공유하면 한번 더 기회가 생겨요!</p>
-            <p className="text-gray-500 text-sm mb-10">(도전권은 최대 1개까지 보유 가능해요)</p>
+            {!isUnlimitedMode && (
+              <>
+                <p className="text-gray-500 text-sm ">링크를 공유하면 한번 더 기회가 생겨요!</p>
+                <p className="text-gray-500 text-sm mb-10">(도전권은 최대 1개까지 보유 가능해요)</p>
+              </>
+            )}
             
             <div className="space-y-3 mt-8">
-              <button
-                onClick={() => shareAndRetry('fail')}
-                className="w-full bg-[#F93B4E] text-white font-semibold py-4 px-8 rounded-xl text-base shadow-md hover:shadow-lg hover:bg-[#d83242] transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
-              >
-                공유하고 다시 도전하기
-              </button>
-              <button
-                onClick={retryAfterShare}
-                className="w-full bg-blue-50 text-blue-700 font-semibold py-4 px-8 rounded-xl text-base border border-blue-200 hover:bg-blue-100 transition-all duration-200"
-              >
-                공유했어요 다시 할래요!
-              </button>
-              {hasTicket && (
+              {isUnlimitedMode ? (
+                // 무제한 모드일 때는 재도전 버튼만 표시 (바로 카운트다운 시작)
                 <button
-                  onClick={goToMain}
-                  className="w-full bg-gray-50 text-gray-700 font-semibold py-4 px-8 rounded-xl text-base border border-gray-200 hover:bg-gray-100 transition-all duration-200"
+                  onClick={() => {
+                    trackRetryClick()
+                    startQuiz()
+                  }}
+                  className="w-full bg-[#F93B4E] text-white font-semibold py-4 px-8 rounded-xl text-base shadow-md hover:shadow-lg hover:bg-[#d83242] transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
                 >
-                  메인으로 돌아가기
+                  다시 도전하기
                 </button>
+              ) : (
+                // 일반 모드일 때는 공유 관련 버튼들 표시
+                <>
+                  <button
+                    onClick={() => shareAndRetry('fail')}
+                    className="w-full bg-[#F93B4E] text-white font-semibold py-4 px-8 rounded-xl text-base shadow-md hover:shadow-lg hover:bg-[#d83242] transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
+                  >
+                    공유하고 다시 도전하기
+                  </button>
+                  <button
+                    onClick={retryAfterShare}
+                    className="w-full bg-blue-50 text-blue-700 font-semibold py-4 px-8 rounded-xl text-base border border-blue-200 hover:bg-blue-100 transition-all duration-200"
+                  >
+                    공유했어요 다시 할래요!
+                  </button>
+                  {hasTicket && (
+                    <button
+                      onClick={goToMain}
+                      className="w-full bg-gray-50 text-gray-700 font-semibold py-4 px-8 rounded-xl text-base border border-gray-200 hover:bg-gray-100 transition-all duration-200"
+                    >
+                      메인으로 돌아가기
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -1122,7 +1163,7 @@ ${shareUrl}`
                 onClick={claimReward}
                 className="w-full bg-[#F93B4E] text-white font-semibold py-4 px-8 rounded-xl text-lg shadow-md hover:shadow-lg hover:bg-[#d83242] transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
               >
-                1만원 받기
+                5천원 받기
               </button>
               <button
                 onClick={() => shareAndRetry('success')}
